@@ -54,7 +54,8 @@ jobs:
       - name: Check REUSE compliance
         run: uvx reuse lint
 
-      # markdownlint stays pinned to the version markdown-lint.yaml runs. The
+      # markdownlint stays pinned to the version soft-lib/ci's markdown-lint.yaml
+      # runs, at the sha markdown-lint.yaml calls. The
       # question this job answers is whether the *image* still works, so
       # everything else must be held still; a markdownlint bump is its own
       # commit, reviewed on its own red or green.
