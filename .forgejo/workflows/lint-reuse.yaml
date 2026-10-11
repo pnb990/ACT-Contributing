@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Pierre-Noel Bouteville <pnb990@gmail.com>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+---
+
+# Thin caller: the steps live once in soft-lib/ci, this file holds what is
+# specific to this project -- the trigger and the image pin.
+#
+# It replaces reuse_compliance.yml, which ran fsfe/reuse-action on
+# `ubuntu-latest`. Neither of those exists on this forge: the runner is
+# labelled `debian` and works in a container, so that job never ran at all and
+# the repository had been non-compliant, unnoticed, for as long as it was
+# there.
+
+"on":
+  # `push` alone, the same trigger as the workflow this calls has in every
+  # other project. A branch is pushed before it becomes a pull request, so the
+  # result is already there when the request is opened.
+  push:
+
+jobs:
+  lint-reuse:
+    # Pinned to a commit, like the image below: a change in soft-lib/ci breaks
+    # nothing here until this line is bumped, which is a reviewable commit and
+    # a git revert away.
+    uses: soft-lib/ci/.forgejo/workflows/lint-reuse.yaml@cbc511e142ebeb53d91904fe8462df0a88d6f7cd
+    with:
+      # Pinned to a commit tag, not to `ci-latest`: a workflow that gates a
+      # push must not be able to break on a commit that has nothing to do with
+      # it. Bumping it is a reviewable commit here, rolling back is a git
+      # revert, and check-image-bump.yaml is what says when the bump is safe.
+      #
+      # Any image with uv in it would do; this is the one the other projects of
+      # the forge already pin, so there is one image to bump rather than two.
+      image: pnb990/python3:ci-20260824-f0906ec6f4f6c7af652b6012e93af76b0c1eea6e
+
+      # The unpinned mode, and the reason lint-reuse.yaml is a workflow of its
+      # own: this repository is documentation. It has no pyproject.toml and no
+      # uv.lock, so there is no pinned `reuse` to run and the shared workflow
+      # resolves one with `uvx` instead. The cost is accepted knowingly -- a
+      # new reuse release can turn this red on a commit that changed nothing --
+      # and the alternative is carrying a python environment here for a single
+      # tool.
+      pinned: false
+
+      # No submodules. The input is a string, it is handed to actions/checkout
+      # as-is.
+      submodules: "false"
