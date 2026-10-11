@@ -37,15 +37,19 @@ Example:
 
 - Severity: **Blocking**
 
-Functions **MUST** be documented with doxygen above their definition in the
-`.c` file. The header file only carries the bare prototype.
+Functions **MUST** be documented with doxygen on their declaration, never on
+their definition:
+
+- a public function is documented in its `.h`, above its prototype,
+- a `static` function is documented in its `.c`, above its prototype, which is
+  declared at the top of the file.
 
 This documentation contains a brief description of what the function does,
 what it returns, and its arguments.
 
 The tags used are as follows (and in the following order):
 
-Example in `pwm.c`:
+Example in `pwm.h`:
 
 ```c
 /**
@@ -60,46 +64,40 @@ Example in `pwm.c`:
  * @return What the function returns and what is the meaning of the value
  *         returned
  */
-PUBLIC int pwm_my_function(struct_a_t pwd, int sloop)
-{
-    ...
-}
+int pwm_my_function(struct_a_t pwd, int sloop);
 ```
 
-The only exception is a header file implemented by **several** `.c` files (one
-per port or backend, chosen at build time). The documentation is then the
-contract shared by every implementation, so it **MUST** be written in the `.h`,
-above the prototype. Each `.c` only carries, above the function definition, a
-plain comment which points back to the header holding the doxygen.
-
-Example in `include/sdcard.h`:
+Example in `pwm.c`:
 
 ```c
 /**
- * @brief Mount the SD card
- * @return 0 if the SD card has been mounted, a negative error code otherwise
+ * @brief Compute the compare value for a duty cycle
+ * @param[in] duty Duty cycle, in percent
+ * @return The compare value to load in the timer
  */
-PUBLIC int sdcard_mount(void);
-```
+static uint32_t pwm_duty_to_compare(uint8_t duty);
 
-Example in `src/sdcard_spi.c`:
+...
 
-```c
-/*
- * see ../include/sdcard.h
- */
-PUBLIC int sdcard_mount(void)
+int pwm_my_function(struct_a_t pwd, int sloop)
+{
+    ...
+}
+
+static uint32_t pwm_duty_to_compare(uint8_t duty)
 {
     ...
 }
 ```
 
-The goal of this rule is to keep exactly **one** copy of the documentation:
-with one implementation, the `.c` is that place; with several, duplicating the
-same `@brief` in each backend guarantees they drift apart.
+The goal of this rule is to keep exactly **one** copy of the documentation, on
+the contract that callers read: the `.h` for a public function, the top of the
+`.c` for a `static` one. A header implemented by several `.c` files (one per
+port or backend, chosen at build time) thus needs nothing more: its
+documentation is the contract shared by every implementation.
 
 A comment which is specific to one implementation still belongs to its own
-`.c`, as a plain comment: it is not part of the contract.
+`.c`, as a plain comment above the definition: it is not part of the contract.
 
 ### RC3 - Structures documentation
 
@@ -209,7 +207,9 @@ Format of the TODO comment:
 ```c
 /* TODO (XXX): mon message */
 ```
+
 or
+
 ```c
 /* TODO XXX mon message */
 ```
@@ -258,15 +258,15 @@ typedef enum
 #define pwmCONST (0)
 
 /* Define variable */
-PRIVATE uint8_t pwm_var;
+static uint8_t pwm_var;
 
 /* Define functions */
-PUBLIC void pwm_init(void)
+void pwm_init(void)
 {
     ...
 }
 
-PUBLIC void pwm_set_var(uint8_t test_var)
+void pwm_set_var(uint8_t test_var)
 {
     ...
 }
@@ -280,7 +280,7 @@ Open braces `{` must be on their own line but closing braces `}` should be on
 the same line as declaration of the structure, enumeration, or function.
 
 ```c
-PUBLIC void prefix_function(void)
+void prefix_function(void)
 {
     ...
 }
@@ -389,14 +389,14 @@ It keeps the name of the action it performs and returns an `int`:
 
 ```c
 /* A question: bool, and the name asks it. */
-PUBLIC bool pwm_is_running(void);
-PUBLIC bool pwm_channel_is_enabled(uint8_t channel);
+bool pwm_is_running(void);
+bool pwm_channel_is_enabled(uint8_t channel);
 
 /* An action that can fail: int, and the name says what it does. */
-PUBLIC int pwm_start(uint32_t freq_hz);
+int pwm_start(uint32_t freq_hz);
 
 /* An action that produces a value: the value, or a negative error. */
-PUBLIC int pwm_duty_get(void);
+int pwm_duty_get(void);
 ```
 
 The call site tests that same contract, so it tests the **sign**: a failure is
@@ -469,3 +469,174 @@ wrong side of the split. That is what the `clang-format off` fence prevents.
 `clang-tidy`'s `llvm-include-order` asks for the opposite order - quoted
 headers before system ones - so a project following this rule turns that
 check off.
+
+### RC19 - Panic handler
+
+- Severity: **Blocking**
+
+This is how [RG31](CODING-STANDARDS_global.md#rg31---unhandled-error) is applied in C.
+
+A project **MUST** provide one single dead end for every error it does not
+handle:
+
+```c
+void lle_panic(uint32_t code);
+```
+
+A failed assertion, an interrupt vector that was never wired, a `default:`
+case that cannot happen, a return code no caller knows how to recover from:
+all of them **MUST** end there, and the assertion macro **MUST** call it when
+its condition is false. `code` identifies the site that gave up, and every
+site **MUST** have its own value.
+
+Nothing else is allowed to be a dead end: no empty `for (;;)`, no silent
+return, and no waiting for a watchdog. A watchdog is often not implemented,
+and even when it is, it resets the product long after the evidence is gone.
+
+`lle_panic()` **MUST**, in this order:
+
+1. **disable the interrupts**, so that nothing keeps running behind the
+   failure and undoes what follows,
+2. **put the product in a safe state**, through the project function that owns
+   it: heating, motors, valves, high voltage, anything that can hurt someone
+   or damage the product is cut as far as the hardware allows,
+3. **call the soft breakpoint macro** `archBKP()`, **in debug builds only**,
+   so that a developer stops on the failure itself with the stack still
+   intact,
+4. **emit a pattern** on a LED or a GPIO that says an unhandled case was
+   reached, and that cannot be confused with any normal indication,
+5. **carry `code` in that pattern**, coded so that a human can read it back by
+   eye, with no probe attached, and name the site that failed,
+6. **reset the product**.
+
+```c
+void lle_panic(uint32_t code)
+{
+    archIRQ_DISABLE();
+
+    prj_safe_state();
+
+#ifdef DEBUG
+    archBKP();
+#endif
+
+    lle_pattern(code);
+
+    archRESET();
+}
+```
+
+The order is the rule. The interrupts go first because a timer or a DMA that
+keeps firing can drive a motor again just after the safe state was reached.
+The safe state comes before anything that talks to a human or to a debugger,
+because that part can take seconds and the product must already be harmless
+while it runs.
+
+The breakpoint is compiled in debug builds only, for two reasons. On the
+bench, with a probe attached, it is the whole point: the core halts on the
+faulty instruction and the stack still says how it got there. In the field it
+would be harmful, since the instruction takes a fault of its own when no
+debugger is listening, and a product stopped there is a product that never
+reaches its reset.
+
+The pattern is the only channel left on a product with no console and no
+probe, so it has to be designed to be read: distinct from every normal
+indication, slow enough for the eye, and repeated until the reset. That is
+also why `code` is a parameter rather than a message string - a number can be
+blinked, a string cannot.
+
+### RC20 - Assertions
+
+- Severity: **Blocking**
+
+#### In a library
+
+Each library defines its own prefixed assertion macro, which falls back on the
+standard `assert()` by default:
+
+```c
+#ifndef mylibASSERT
+#include <assert.h>
+#define mylibASSERT(e) assert(e)
+#endif
+```
+
+A library **MUST NOT** call a macro or a function that belongs to a project
+(`archASSERT`, `lle_panic()`, ...): it would no longer build anywhere else.
+A project which needs a different behaviour overrides `mylibASSERT` with a `-D`
+or in a configuration header.
+
+#### In a project
+
+The project owns the one and only handler: it redefines `__assert_func`
+(newlib, picolibc), which every failed `assert()` ends in, libraries included.
+This handler is a site that gives up, so it calls `lle_panic()` as required
+by [RC19](#rc19---panic-handler).
+
+```c
+void __assert_func(const char *file, int line, const char *func,
+                   const char *expr)
+{
+    ...
+    lle_panic(...);
+}
+```
+
+A project provides two levels of assertion:
+
+- `prjASSERT(e)` is **always** active, release included. It is meant for the
+  critical invariants that are cheap to check.
+- `prjDEBUG_ASSERT(e)` is active only when `DEBUG_CHECKS` is defined. It is
+  meant for the expensive checks: walking a list, computing a checksum,
+  validating a whole structure.
+
+```c
+#define prjASSERT(e) assert(e)
+
+#ifdef DEBUG_CHECKS
+#define prjDEBUG_ASSERT(e) assert(e)
+#else
+#define prjDEBUG_ASSERT(e) ((void)0)
+#endif
+```
+
+#### General rules
+
+- Every function **MUST** check its arguments with an assertion on entry:
+  pointers not `NULL`, ranges, sizes. An exception **MUST** be justified by a
+  comment (critical path, interrupt handler, ...).
+- An assertion **MUST NOT** have a side effect: `assert(init() == OK)` is
+  forbidden, since the call disappears when the assertion is compiled out.
+- What can be checked at compile time **MUST** be checked with
+  `static_assert`.
+- A release build **MUST NOT** define `NDEBUG`. CMake adds `-DNDEBUG` to the
+  `Release`, `RelWithDebInfo` and `MinSizeRel` flags: the project removes it.
+- The project **SHOULD** build with
+  `-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=`, so that the `__FILE__` strings
+  kept by the assertions stay short.
+
+### RC21 - Format macros for fixed-width integers
+
+- Severity: **Blocking**
+
+A fixed-width integer type from `<stdint.h>` (`uint32_t`, `int16_t`, ...)
+passed to a `printf`/`scanf` family function **MUST** use the conversion macro
+from `<inttypes.h>` (`PRIu32`, `PRId16`, `PRIx32`, `SCNu32`, ...), never a
+hard-coded conversion specifier (`%u`, `%lu`, `%d`, ...).
+
+```c
+/* GOOD */
+uint32_t count = ...;
+printf("count = %" PRIu32 "\n", count);
+
+/* BAD */
+uint32_t count = ...;
+printf("count = %u\n", count);   /* or "%lu" */
+```
+
+The underlying type of a fixed-width type is not the same on every platform:
+`uint32_t` is `unsigned int` on one target and `unsigned long` on another. A
+hard-coded specifier is therefore correct on at most one of them; on the other
+it mismatches the argument, which is undefined behaviour and breaks
+`-Wformat`. The macro expands to the specifier that matches the type on the
+platform being built, so the same code stays correct everywhere.

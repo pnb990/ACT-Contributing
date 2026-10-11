@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Pierre-Noel Bouteville <pnb990@gmail.com>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+---
+
+# Markdown lint -- the check that matters most here, since this repository is
+# nothing but markdown.
+#
+# Unlike lint-reuse.yaml next to it, this job is written out in full rather
+# than called from soft-lib/ci. That repository exists to hold the workflows
+# several projects had copied by hand; this one is the only project on the
+# forge that lints markdown, so there is nothing to de-duplicate yet. The day a
+# second project wants it, this job is what moves there.
+#
+# It replaces markdown_lint.yml, which ran DavidAnson/markdownlint-cli2-action
+# on `ubuntu-latest` -- a runner this forge does not have, so the job never
+# ran. Its glob was `*.md`, the repository root only, which is the other half
+# of the same story: software/ holds every coding standard and was outside the
+# lint entirely.
+
+"on":
+  # `push`, like lint-reuse.yaml. The two gate the same way, for the same
+  # reason.
+  push:
+
+jobs:
+  markdown-lint:
+    runs-on: debian
+    container:
+      # The same image as lint-reuse.yaml, pinned to the same commit, so there
+      # is one pin to bump rather than two. It is not here for python: the `ci`
+      # variants carry nodejs and npm so the runner can execute JavaScript
+      # actions such as actions/checkout, and that node is what runs
+      # markdownlint below.
+      image: pnb990/python3:ci-20260824-f0906ec6f4f6c7af652b6012e93af76b0c1eea6e
+
+    steps:
+      # The tag is already the commit here, but the stamp is what proves the
+      # image really is that build, and it is the same step as in
+      # check-image-bump.yaml, where the tag floats.
+      - name: Image provenance
+        run: |
+          cat /etc/image-info 2>/dev/null \
+            || echo "no /etc/image-info: pin not bumped with the rename, or image older than the stamp"
+
+      - name: Checkout the repo
+        uses: actions/checkout@v6
+
+      # Pinned by version, like everything else that gates a push: an unpinned
+      # `npx markdownlint-cli2` resolves at run time, so a release adding a
+      # rule would fail a commit that changed nothing.
+      #
+      # `**/*.md`, not the `*.md` this replaces -- see the note at the top.
+      # .markdownlint.yaml at the root is found by the tool on its own, and it
+      # is the same file the davidanson.vscode-markdownlint extension reads, so
+      # the editor and this job agree.
+      - name: Lint markdown
+        run: npx --yes markdownlint-cli2@0.23.2 "**/*.md"

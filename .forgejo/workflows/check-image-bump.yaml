@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: 2026 Pierre-Noel Bouteville <pnb990@gmail.com>
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+---
+
+# The canary for the pinned image. The workflows that gate a push stay on a
+# commit tag, so a new image can never break a commit that has nothing to do
+# with it; this one runs the very same checks on the floating tag, on a
+# schedule.
+#
+# Green  -> bumping the pin in the other workflows is safe, and the commit to
+#           pin is the one printed by the provenance step below.
+# Red    -> the image moved under us. Nothing is broken yet, the pinned
+#           workflows are unaffected, and the log says what to fix before
+#           bumping.
+#
+# One job, because both lint-reuse.yaml and markdown-lint.yaml pin the same
+# image, and a single result must answer a single question: can that pin be
+# bumped.
+
+"on":
+  # Forgejo, like GitHub, only runs a schedule on the default branch: this
+  # file does nothing until it reaches master.
+  schedule:
+    # Monday, 03:00 UTC.
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check-python-image:
+    # `ci-latest`, deliberately: the floating tag the two gating workflows do
+    # NOT use. Published by soft-lib/docker-images from its default branch
+    # only.
+    runs-on: debian
+    container:
+      image: pnb990/python3:ci-latest
+
+    steps:
+      # What makes a floating tag usable at all: the tag says nothing about
+      # which build ran, /etc/image-info does. Copy the commit from this log
+      # into the `image` of lint-reuse.yaml and markdown-lint.yaml to bump the
+      # pin.
+      - name: Image provenance
+        run: |
+          cat /etc/image-info 2>/dev/null \
+            || echo "no /etc/image-info: pin not bumped with the rename, or image older than the stamp"
+
+      - name: Checkout the repo
+        uses: actions/checkout@v6
+
+      # `uvx`, the same unpinned mode lint-reuse.yaml asks the shared workflow
+      # for: this repository has no uv.lock to pin reuse in.
+      - name: Check REUSE compliance
+        run: uvx reuse lint
+
+      # markdownlint stays pinned to the version markdown-lint.yaml runs. The
+      # question this job answers is whether the *image* still works, so
+      # everything else must be held still; a markdownlint bump is its own
+      # commit, reviewed on its own red or green.
+      - name: Lint markdown
+        run: npx --yes markdownlint-cli2@0.23.2 "**/*.md"

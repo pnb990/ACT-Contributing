@@ -42,6 +42,7 @@ SPDX-License-Identifier: LicenseRef-ALLCircuits-ACT-1.1
   - [RG28 - Your project deliverable must be produced by CI/CD tools](#rg28---your-project-deliverable-must-be-produced-by-cicd-tools)
   - [RG29 - Each projects must have a README.md with a quick presentation and start guide](#rg29---each-projects-must-have-a-readmemd-with-a-quick-presentation-and-start-guide)
   - [RG30 - Declare the code formatter version in the file header](#rg30---declare-the-code-formatter-version-in-the-file-header)
+  - [RG31 - Unhandled error](#rg31---unhandled-error)
 
 ## Introduction
 
@@ -336,7 +337,7 @@ The project's textual files must contain a header, consisting of at least:
 ```txt
 SPDX-FileCopyrightText: YYYY First name Name <email>
 
-SPDX-License-Identifier: LicenseRef-ALLCircuits-ACT-XZ
+SPDX-License-Identifier: LicenseRef-ALLCircuits-ACT-1.1
 ```
 
 This header has to be commented according to the language, i.e. prefixed with `//` for C/C++
@@ -576,3 +577,35 @@ The CI (see RG27) checks two things, and **fails** if either is false:
 > Since the tag is mandatory, applying this rule to an existing project is a single mechanical
 > commit which adds it to every file with the version currently in use. Do that commit alone, before
 > any reformatting, so that the later version migrations stay small and reviewable.
+
+### RG31 - Unhandled error
+
+| Project type | Severity     |
+| ------------ | ------------ |
+| *All*        | **Blocking** |
+
+When a program reaches a state it does not know how to handle, it **MUST** stop the activity that
+led there, make the failure visible and recordable, and preserve what is needed to diagnose it. It
+**MUST NOT** carry on in a state it can no longer describe, and it **MUST NOT** rely on an outside
+mechanism to notice the failure for it.
+
+An error is handled when the code knows which state it is in afterwards. Catching a failure to turn
+it into a documented error and passing it up is handling it. The following are not, and are
+forbidden:
+
+- a catch-all that does nothing, or that only logs and lets execution continue from the state that
+  raised: `catch (...) { }`, `catch (e) { }`, and their equivalent in every language,
+- an error return value, status or code that no caller reads,
+- an asynchronous failure nobody is attached to: a `Future` or a `Promise` with no error handler, a
+  stream subscribed without `onError`,
+- an empty wait loop or a silent return standing in for the failure handling,
+- a retry that hides a permanent failure,
+- counting on a watchdog, a supervisor, an orchestrator or an automatic restart to detect the
+  failure. Such a mechanism is often not deployed, and when it does act, the state that would have
+  explained the failure is already gone.
+
+What "visible and recordable" means depends on what the product is, and the language standards say
+with which mechanism. On a desktop application or a service, it is a log entry carrying the context
+and the call stack, and a controlled termination of the operation. On a microcontroller with no
+console, it is the dead end described by the C standards - safe state, identifying pattern, reset -
+see [RC19](CODING-STANDARDS_c.md#rc19---panic-handler).
