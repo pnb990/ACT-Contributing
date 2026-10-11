@@ -468,7 +468,7 @@ wrong side of the split. That is what the `clang-format off` fence prevents.
 headers before system ones - so a project following this rule turns that
 check off.
 
-### RC19 - Unhandled error
+### RC19 - Panic handler
 
 - Severity: **Blocking**
 
@@ -478,7 +478,7 @@ A project **MUST** provide one single dead end for every error it does not
 handle:
 
 ```c
-void lle_unhandled(uint32_t code);
+void lle_panic(uint32_t code);
 ```
 
 A failed assertion, an interrupt vector that was never wired, a `default:`
@@ -491,7 +491,7 @@ Nothing else is allowed to be a dead end: no empty `for (;;)`, no silent
 return, and no waiting for a watchdog. A watchdog is often not implemented,
 and even when it is, it resets the product long after the evidence is gone.
 
-`lle_unhandled()` **MUST**, in this order:
+`lle_panic()` **MUST**, in this order:
 
 1. **disable the interrupts**, so that nothing keeps running behind the
    failure and undoes what follows,
@@ -508,7 +508,7 @@ and even when it is, it resets the product long after the evidence is gone.
 6. **reset the product**.
 
 ```c
-void lle_unhandled(uint32_t code)
+void lle_panic(uint32_t code)
 {
     archIRQ_DISABLE();
 
@@ -560,7 +560,7 @@ standard `assert()` by default:
 ```
 
 A library **MUST NOT** call a macro or a function that belongs to a project
-(`archASSERT`, `lle_unhandled()`, ...): it would no longer build anywhere else.
+(`archASSERT`, `lle_panic()`, ...): it would no longer build anywhere else.
 A project which needs a different behaviour overrides `mylibASSERT` with a `-D`
 or in a configuration header.
 
@@ -568,15 +568,15 @@ or in a configuration header.
 
 The project owns the one and only handler: it redefines `__assert_func`
 (newlib, picolibc), which every failed `assert()` ends in, libraries included.
-This handler is a site that gives up, so it calls `lle_unhandled()` as required
-by [RC19](#rc19---unhandled-error).
+This handler is a site that gives up, so it calls `lle_panic()` as required
+by [RC19](#rc19---panic-handler).
 
 ```c
 void __assert_func(const char *file, int line, const char *func,
                    const char *expr)
 {
     ...
-    lle_unhandled(...);
+    lle_panic(...);
 }
 ```
 

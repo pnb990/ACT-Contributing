@@ -608,4 +608,4 @@ What "visible and recordable" means depends on what the product is, and the lang
 with which mechanism. On a desktop application or a service, it is a log entry carrying the context
 and the call stack, and a controlled termination of the operation. On a microcontroller with no
 console, it is the dead end described by the C standards - safe state, identifying pattern, reset -
-see [RC19](CODING-STANDARDS_c.md#rc19---unhandled-error).
+see [RC19](CODING-STANDARDS_c.md#rc19---panic-handler).
